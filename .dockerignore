@@ -1,0 +1,9 @@
+# Everything here is sent to the Docker daemon and lands in the image. Keep
+# build output, dependencies and git history out of both.
+**/bin/
+**/obj/
+**/node_modules/
+.git/
+.vs/
+.idea/
+.vscode/
