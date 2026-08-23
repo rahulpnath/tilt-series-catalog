@@ -10,86 +10,124 @@ the right set of repos at the right tag:
 ```sh
 git clone https://github.com/rahulpnath/tilt-series
 cd tilt-series
-./bootstrap.sh v1-start
+./bootstrap.sh v2-start
 ```
 
-## At `v1-end`
+## At `v2-start`
 
-Same API, now in a **dev image**: the .NET SDK, your `src` folder bind-mounted
-into it, and `dotnet watch` recompiling on every save. Your machine no longer
-needs a .NET SDK.
+Catalog is **two** processes now, and between them they need **two** pieces of
+infrastructure:
+
+| | |
+|---|---|
+| `Shop.Catalog.Api` | minimal API on :5101 — saves products to SQL Server, publishes `ProductCreated` |
+| `Shop.Catalog.Worker` | background service — handles `ProductCreated` and logs it |
+| `Shop.Catalog.Contracts` | the message type, so both sides resolve the same one |
+
+Messaging is [Rebus](https://rebus.fm) rather than raw `RabbitMQ.Client`:
+`bus.Publish(...)` on one side, an `IHandleMessages<ProductCreated>` on the
+other, and no exchange or queue plumbing in your code.
+
+**Nothing about Docker has changed since `v1-end`** — and that is the problem.
+Video 1's `docker run` command still starts the API, but the API now needs a
+database and a broker that don't exist, so it never serves a request.
+
+Starting Catalog by hand is now four containers that have to find each other:
 
 ```sh
-docker build -t shop-catalog-api:dev -f docker/catalog-api.dev.Dockerfile .
+# Containers only resolve each other by name on a user-defined network —
+# Docker's default bridge has no DNS at all.
+docker network create shop-net
 
-docker run --rm -it -p 5101:5101 --name shop-catalog-api \
+docker run -d --name sqlserver --network shop-net \
+  -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD='P@ssw0rd!Demo1' \
+  mcr.microsoft.com/mssql/server:2022-latest
+
+docker run -d --name rabbitmq --network shop-net \
+  -e RABBITMQ_DEFAULT_USER=shop -e RABBITMQ_DEFAULT_PASS=shop \
+  -p 15672:15672 rabbitmq:3-management
+
+docker build -t shop-catalog-api:dev    -f docker/catalog-api.dev.Dockerfile    .
+docker build -t shop-catalog-worker:dev -f docker/catalog-worker.dev.Dockerfile .
+
+docker run -d --name catalog-api --network shop-net -p 5101:5101 \
   -v "$PWD/src:/src" \
   shop-catalog-api:dev
 
-curl http://localhost:5101/
+docker run -d --name catalog-worker --network shop-net \
+  -v "$PWD/src:/src" \
+  shop-catalog-worker:dev
 ```
 
-Edit `src/Shop.Catalog.Api/Program.cs`, change the string on `/`, save, and
-curl again. New response, no rebuild — the container is compiling what your
-editor writes.
-
-### The two flags that matter
-
-`-p 5101:5101` publishes a port: it opens a door from your host to the
-container. Without it the API is running and completely unreachable.
-
-`-v "$PWD/src:/src"` is a bind mount: your folder, seen from inside the
-container. This is what makes `dotnet watch` useful — it watches your editor's
-output, not a copy frozen at build time.
-
-### Two builds, one folder
-
-That bind mount creates a problem, and the Dockerfile has already solved it.
-Your host builds into `src/Shop.Catalog.Api/obj` and `bin`. So would the
-container — into those same two folders, because a bind mount means there is
-only one copy of them — and the container runs as **root**.
-
-So the image sends its build somewhere your tree can't see:
-
-```dockerfile
-ENV ArtifactsPath=/artifacts
-```
-
-`/artifacts` exists only inside the container. MSBuild reads environment
-variables as properties, and `ArtifactsPath` switches on the artifacts output
-layout by itself — no `Directory.Build.props`, no change to any `.csproj`.
-
-Nearly every tutorial solves this the other way, by *masking* the two folders
-with anonymous volumes:
+Then:
 
 ```sh
--v /src/Shop.Catalog.Api/obj -v /src/Shop.Catalog.Api/bin   # don't
+curl -X POST http://localhost:5101/products \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Pour Over Kettle","price":129.00}'
+
+curl http://localhost:5101/products      # it came back from SQL Server
+docker logs catalog-worker               # 📦 product.created — #1 Pour Over Kettle
 ```
 
-That works on the machine it was written on and breaks on a fresh clone. Docker
-creates a mount point only when the path doesn't exist — and in a fresh clone
-`obj/` doesn't, so Docker creates it on your host: empty, and owned by **root**.
-Your next host build then dies before it compiles anything:
+A network, two builds and four `docker run`s, in an order that matters, written
+down nowhere but here. That is what Video 2 replaces with one file.
+
+Note that only the ports *you* need are published: the API on 5101 and the
+RabbitMQ UI on 15672. SQL Server gets no `-p` at all — nothing on your machine
+talks to it, only the API does, and it does that across the network.
+
+### Two things to watch while it starts
+
+Both are the same problem — *a dependency isn't ready yet* — and the two
+libraries handle it very differently.
+
+**SQL Server takes ~20 seconds** before it accepts a connection. `DbBootstrap`
+retries for it, 30 times, two seconds apart. On a normal start you may see zero
+retries: building the API inside the container takes long enough that SQL is
+ready by the time it looks. Start the API with no SQL Server at all and the loop
+earns its keep:
 
 ```
-NuGet.targets(196,5): error : Access to the path '.../obj/<guid>.tmp' is denied.
-NuGet.targets(196,5): error :   Permission denied
-Build FAILED.
+warn: SQL not ready yet (attempt 1/30): An exception has been raised that is
+      likely due to a transient failure...
 ```
 
-It's the *directory* that stops you, not the files in it. Root-owned files
-inside a folder you own are replaced without complaint — deleting a file is a
-permission on its **parent**. A root-owned folder is the one you can't write
-into.
+Eight of those in the first minute, and the container stays up. Start SQL and it
+picks up with no restart. Delete the loop and the first failed connection takes
+the process down.
 
-If you've already hit it: on a fresh clone those folders are empty, so
-`rm -rf src/*/obj src/*/bin` clears them. Once a container has filled them,
-`rm` can't — borrow the container's root instead:
+The API answers **nothing** while it waits, not even `/health` — the bootstrap
+runs before `app.Run()`, so there is no server listening yet.
 
-```sh
-docker run --rm -v "$PWD/src:/src" --entrypoint sh shop-catalog-api:dev \
-  -c 'rm -rf /src/*/obj /src/*/bin'
+**Rebus is more patient, but not infinitely so.** With RabbitMQ down it logs:
+
 ```
+warn: Could not establish connection: "None of the specified endpoints were reachable"
+```
+
+every few seconds while it retries. Measured here: **11 attempts over 58
+seconds**, then it gives up, throws, and the process exits. RabbitMQ starts
+accepting connections about 15 seconds after its container does, so an ordinary
+start never approaches that budget — but a broker that is genuinely missing kills
+the app rather than being waited out forever.
+
+Video 2 fixes the ordering properly, with a healthcheck.
+
+### "Up" does not mean "running"
+
+If the app inside the container throws on startup, `dotnet watch` prints this
+and then does nothing:
+
+```
+dotnet watch ❌ [Shop.Catalog.Api (net10.0)] Exited with error code 134
+dotnet watch ⏳ Waiting for a file to change before restarting ...
+```
+
+The watcher is alive, so the **container stays `Up`** — `docker ps` will tell
+you everything is fine. The application is dead, and stays dead until you touch
+a file. Any time something is unreachable but its container looks healthy, read
+the logs before you believe `docker ps`.
 
 ### If `watch` never fires — check where the repo lives
 
@@ -100,35 +138,14 @@ findmnt -no FSTYPE,SOURCE,TARGET .
 # 9p  C:\  /mnt/c        ← the problem
 ```
 
-Across that 9p mount, a file written by a **Windows** process (which is what
-your editor is, if you're editing from Windows) generates no inotify event on
-the Linux side. `dotnet watch` never learns anything changed — no error, no
+Across that 9p mount, a file written by a **Windows** process — which is what
+your editor is, if you're editing from Windows — generates no inotify event on
+the Linux side. `dotnet watch` never learns anything changed: no error, no
 message, it just sits at `Waiting for changes` forever.
 
 Confusingly, editing that same file from *inside* WSL2 works fine, so testing
 with `sed` will tell you everything is healthy. It isn't.
 
-The fix is to move the repo into the WSL2 filesystem (somewhere under `~`), not
+The fix is to move the repo into the WSL2 filesystem, somewhere under `~` — not
 to set `DOTNET_USE_POLLING_FILE_WATCHER=true`. Polling papers over it, burns
 CPU, and adds latency to every save.
-
----
-
-## At `v1-start`
-
-`Shop.Catalog.Api`, a .NET 10 minimal API holding its products in memory. No
-database, no messaging, no Docker — it runs because your machine has the SDK:
-
-```sh
-cd src
-dotnet run --project Shop.Catalog.Api
-
-curl http://localhost:5101/
-curl http://localhost:5101/products
-curl -X POST http://localhost:5101/products \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Pour Over Kettle","price":129.00}'
-```
-
-That is the starting point Video 1 opens on, and the problem it opens with:
-it runs because *your* machine happens to have the right SDK.
