@@ -10,8 +10,22 @@ the right set of repos at the right tag:
 ```sh
 git clone https://github.com/rahulpnath/tilt-series
 cd tilt-series
-./bootstrap.sh v2-end
+./bootstrap.sh v3-start
 ```
+
+## At `v3-start`
+
+Two sibling repos have arrived — `Shop.Orders` and `Shop.Storefront` — each with
+its own compose file and its own project. Nothing in this repo was wired to
+them, and nothing here can see them.
+
+One thing did change in here: `Program.cs` now adds a wide-open **CORS policy**.
+The Storefront runs on `http://localhost:5173` and this API on
+`http://localhost:5101` — different origins, so without it the browser refuses
+every call. It ships pre-built because Video 3 is about names and networks, not
+browser security, and Video 5 removes the need for it entirely.
+
+Everything below still describes how this repo runs on its own.
 
 ## At `v2-end`
 

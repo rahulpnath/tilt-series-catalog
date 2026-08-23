@@ -14,7 +14,13 @@ builder.Services.AddDbContext<CatalogDbContext>(o =>
 builder.Services.AddRebus(rebus => rebus
     .Transport(t => t.UseRabbitMqAsOneWayClient(builder.Configuration["Rabbit:Url"])));
 
+// Local development only: the Storefront is a different origin, so without
+// this the browser blocks every call.
+builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
+    p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
+
 var app = builder.Build();
+app.UseCors();
 
 await DbBootstrap.EnsureCreatedAsync(app.Services, app.Logger);
 
