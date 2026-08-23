@@ -1,0 +1,68 @@
+# Everything Catalog needs to run, in one file.
+
+# Groups everything below it: container names, network, and what `down` stops.
+name: shop
+
+services:
+  catalog-api:
+    build:
+      context: ..
+      dockerfile: docker/catalog-api.dev.Dockerfile
+    image: shop-catalog-api:dev
+    ports:
+      - "5101:5101"
+    environment:
+      # A double underscore becomes a colon: this sets ConnectionStrings:Db.
+      ConnectionStrings__Db: "Server=sqlserver,1433;Database=ShopCatalog;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;Encrypt=False"
+      Rabbit__Url: "amqp://shop:shop@rabbitmq"
+    volumes:
+      # Your source, seen from inside the container — what dotnet watch is watching.
+      - ../src:/src
+    depends_on:
+      # The long form waits for the healthcheck; the short form only orders starts.
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
+
+  catalog-worker:
+    build:
+      context: ..
+      dockerfile: docker/catalog-worker.dev.Dockerfile
+    image: shop-catalog-worker:dev
+    environment:
+      Rabbit__Url: "amqp://shop:shop@rabbitmq"
+    volumes:
+      - ../src:/src
+    depends_on:
+      rabbitmq:
+        condition: service_started
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${SA_PASSWORD}"
+    volumes:
+      # Named volume: the database survives `down`, but not `down -v`.
+      - sql-data:/var/opt/mssql
+    healthcheck:
+      # sqlcmd is not on PATH and lives in /opt/mssql-tools18/bin here; 18 encrypts
+      # by default, so -C trusts the self-signed cert.
+      test: ["CMD", "/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", "${SA_PASSWORD}", "-C", "-Q", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: shop
+      RABBITMQ_DEFAULT_PASS: shop
+    ports:
+      # Only the management UI. Nothing on your machine speaks AMQP.
+      - "15672:15672"
+
+volumes:
+  sql-data:

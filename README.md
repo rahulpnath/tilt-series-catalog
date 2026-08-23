@@ -10,109 +10,184 @@ the right set of repos at the right tag:
 ```sh
 git clone https://github.com/rahulpnath/tilt-series
 cd tilt-series
-./bootstrap.sh v2-start
+./bootstrap.sh v2-end
 ```
 
-## At `v2-start`
+## At `v2-end`
 
-Catalog is **two** processes now, and between them they need **two** pieces of
-infrastructure:
+The runbook is gone. One file, one command:
 
-| | |
+```sh
+docker compose -f docker/compose.yaml up
+```
+
+Compose builds both images, creates a network, starts SQL Server and RabbitMQ,
+**waits for SQL to actually be ready**, then starts the API and worker and
+streams all four log streams into one terminal.
+
+- <http://localhost:5101/products> — the API
+- <http://localhost:15672> — RabbitMQ management (shop / shop)
+
+### One file, and what it's called
+
+`compose.yaml` is the current name. `docker-compose.yml` is the older one and
+still works — you will see it in most tutorials and most repos. Older files also
+carry a top-level `version:` key; it is obsolete, and Compose warns if you leave
+it in.
+
+There is deliberately **no** `docker-compose.override.yml` or `.dev.yml` split
+here. That split separates shared shape from environment-specific bits, and
+nothing needs it yet — a second compose file shows up in Video 3, when a second
+*repo* does.
+
+### The password lives in one place
+
+Two things need the SA password: the `sqlserver` service, and the connection
+string the API is handed. Written out twice, they drift. So they aren't:
+
+```yaml
+# compose.yaml
+environment:
+  MSSQL_SA_PASSWORD: "${SA_PASSWORD}"
+```
+
+```sh
+# .env, sitting next to compose.yaml — Compose reads it automatically
+SA_PASSWORD=P@ssw0rd!Demo1
+```
+
+`${...}` substitution is a Compose feature, not a shell one, and Video 6 reuses
+exactly this mechanism for `${BRANCH}` to give every worktree its own container
+names.
+
+This is a throwaway password for a container that lives twenty minutes. Real
+secret management is a different subject.
+
+Note the connection string is passed as `ConnectionStrings__Db`. A double
+underscore becomes a colon when .NET reads configuration, so that sets
+`ConnectionStrings:Db` and overrides `appsettings.json` without a code change.
+
+### The project name is doing most of the work
+
+One line, `name: shop`, decides all of this:
+
+```
+shop-catalog-api-1      ← <project>-<service>-<n>
+shop-catalog-worker-1
+shop-sqlserver-1
+shop-rabbitmq-1
+shop_default            ← the network they all share
+```
+
+It is also the label Compose groups by, which is how `docker compose ps`, `logs`
+and `down` know what they're operating on. Leave it out and the project name
+defaults to **the directory the file sits in** — `docker` here — and it changes
+the day you rename a folder. Video 6 is built on being able to choose this name.
+
+There is no `container_name:` anywhere yet. Taking control of those is a Video 6
+problem.
+
+### Service names are DNS
+
+The API's connection string says `Server=sqlserver,1433` and it resolves — not
+because anything set a hostname, but because **`sqlserver` is the service name**,
+and Compose registers every service name on the network it created. Same for
+`amqp://shop:shop@rabbitmq`.
+
+Which is also why Video 1 could never have done this: Docker's *default* bridge
+network has no DNS between containers at all. Compose quietly created a
+user-defined network, and that is where the names come from. Video 3 is about
+what happens when the thing you're calling is in a different project.
+
+### Not everything needs a door
+
+Only two ports are published: the API on 5101, and RabbitMQ's management UI on
+15672. SQL Server has no `ports:` entry at all — `docker compose ps` shows it as
+`1433/tcp`, reachable on the network, closed to your machine. Nothing on your
+host needs to speak to it.
+
+### `depends_on` — the short form orders, the long form waits
+
+```yaml
+depends_on:
+  sqlserver:
+    condition: service_healthy
+```
+
+`depends_on: [sqlserver]` — the short form — only controls *start order*. A
+container that has started and a database that will accept a connection are
+different events, often 20 seconds apart, and the short form only knows about
+the first.
+
+The long form waits for a `healthcheck` to pass. Catalog's:
+
+```yaml
+healthcheck:
+  test: ["CMD", "/opt/mssql-tools18/bin/sqlcmd",
+         "-S", "localhost", "-U", "sa", "-P", "${SA_PASSWORD}", "-C",
+         "-Q", "SELECT 1"]
+```
+
+Two details that will cost you an evening otherwise: `sqlcmd` is **not on the
+PATH** in this image, and its directory moved — `/opt/mssql-tools/bin` in older
+images, `/opt/mssql-tools18/bin` here. Version 18 also encrypts by default, so
+`-C` is required to trust the container's self-signed certificate.
+
+You can watch it work:
+
+```
+ Container shop-sqlserver-1     Waiting
+ Container shop-sqlserver-1     Healthy
+ Container shop-catalog-api-1   Starting
+```
+
+The API's own retry loop is still there as a backstop, and now it never fires —
+measured across a cold start with the healthcheck in place: zero retries.
+
+### Persistence
+
+`sql-data` is a named volume, so the database outlives the containers:
+
+```sh
+docker compose -f docker/compose.yaml down     # products still there on the way back up
+docker compose -f docker/compose.yaml down -v  # -v takes the volume with it
+```
+
+`down -v` is the destructive one. It is also how you get a clean database when
+you want one.
+
+### Every V1 flag is still here, just declared
+
+Nothing was replaced — the `docker run` flags from Video 1 became lines in the
+file:
+
+| Video 1 | `compose.yaml` |
 |---|---|
-| `Shop.Catalog.Api` | minimal API on :5101 — saves products to SQL Server, publishes `ProductCreated` |
-| `Shop.Catalog.Worker` | background service — handles `ProductCreated` and logs it |
-| `Shop.Catalog.Contracts` | the message type, so both sides resolve the same one |
+| `-p 5101:5101` | `ports: ["5101:5101"]` |
+| `-v "$PWD/src:/src"` | `volumes: - ../src:/src` |
+| `-f docker/catalog-api.dev.Dockerfile .` | `build: {context: .., dockerfile: ...}` |
 
-Messaging is [Rebus](https://rebus.fm) rather than raw `RabbitMQ.Client`:
-`bus.Publish(...)` on one side, an `IHandleMessages<ProductCreated>` on the
-other, and no exchange or queue plumbing in your code.
+Paths in `build.context` and the bind mount are relative to **the compose file**,
+so `..` is the repo root. That holds while you run Compose yourself; Video 4
+hands the same file to Tilt, which runs from somewhere else, and that is the line
+which has to change.
 
-**Nothing about Docker has changed since `v1-end`** — and that is the problem.
-Video 1's `docker run` command still starts the API, but the API now needs a
-database and a broker that don't exist, so it never serves a request.
+Nothing in there masks `obj/` and `bin/`, and nothing needs to: both dev images
+set `ArtifactsPath=/artifacts`, so each container compiles to a path that exists
+only inside it. The alternative is six more `volumes:` lines — two folders per
+project, three projects — that work for whoever wrote them and break on a fresh
+clone. The `v1-end` README has the long version of why.
 
-Starting Catalog by hand is now four containers that have to find each other:
+Verified after a full `compose up`: zero root-owned entries anywhere in the tree,
+and a host `dotnet build` still succeeds while the containers are running.
 
-```sh
-# Containers only resolve each other by name on a user-defined network —
-# Docker's default bridge has no DNS at all.
-docker network create shop-net
+### A note on `docker compose watch`
 
-docker run -d --name sqlserver --network shop-net \
-  -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD='P@ssw0rd!Demo1' \
-  mcr.microsoft.com/mssql/server:2022-latest
-
-docker run -d --name rabbitmq --network shop-net \
-  -e RABBITMQ_DEFAULT_USER=shop -e RABBITMQ_DEFAULT_PASS=shop \
-  -p 15672:15672 rabbitmq:3-management
-
-docker build -t shop-catalog-api:dev    -f docker/catalog-api.dev.Dockerfile    .
-docker build -t shop-catalog-worker:dev -f docker/catalog-worker.dev.Dockerfile .
-
-docker run -d --name catalog-api --network shop-net -p 5101:5101 \
-  -v "$PWD/src:/src" \
-  shop-catalog-api:dev
-
-docker run -d --name catalog-worker --network shop-net \
-  -v "$PWD/src:/src" \
-  shop-catalog-worker:dev
-```
-
-Then:
-
-```sh
-curl -X POST http://localhost:5101/products \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Pour Over Kettle","price":129.00}'
-
-curl http://localhost:5101/products      # it came back from SQL Server
-docker logs catalog-worker               # 📦 product.created — #1 Pour Over Kettle
-```
-
-A network, two builds and four `docker run`s, in an order that matters, written
-down nowhere but here. That is what Video 2 replaces with one file.
-
-Note that only the ports *you* need are published: the API on 5101 and the
-RabbitMQ UI on 15672. SQL Server gets no `-p` at all — nothing on your machine
-talks to it, only the API does, and it does that across the network.
-
-### Two things to watch while it starts
-
-Both are the same problem — *a dependency isn't ready yet* — and the two
-libraries handle it very differently.
-
-**SQL Server takes ~20 seconds** before it accepts a connection. `DbBootstrap`
-retries for it, 30 times, two seconds apart. On a normal start you may see zero
-retries: building the API inside the container takes long enough that SQL is
-ready by the time it looks. Start the API with no SQL Server at all and the loop
-earns its keep:
-
-```
-warn: SQL not ready yet (attempt 1/30): An exception has been raised that is
-      likely due to a transient failure...
-```
-
-Eight of those in the first minute, and the container stays up. Start SQL and it
-picks up with no restart. Delete the loop and the first failed connection takes
-the process down.
-
-The API answers **nothing** while it waits, not even `/health` — the bootstrap
-runs before `app.Run()`, so there is no server listening yet.
-
-**Rebus is more patient, but not infinitely so.** With RabbitMQ down it logs:
-
-```
-warn: Could not establish connection: "None of the specified endpoints were reachable"
-```
-
-every few seconds while it retries. Measured here: **11 attempts over 58
-seconds**, then it gives up, throws, and the process exits. RabbitMQ starts
-accepting connections about 15 seconds after its container does, so an ordinary
-start never approaches that budget — but a broker that is genuinely missing kills
-the app rather than being waited out forever.
-
-Video 2 fixes the ordering properly, with a healthcheck.
+You may be reaching for it. It does a different job: `watch` syncs files into the
+container or rebuilds the image, while `dotnet watch` runs *inside* the container
+and recompiles in place. A bind mount is used here because from Video 4 Tilt
+drives these same compose files and does not use `develop.watch`, and because
+rebuilding a .NET image on every keystroke is far slower than hot reload.
 
 ### "Up" does not mean "running"
 
