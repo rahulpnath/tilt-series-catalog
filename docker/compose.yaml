@@ -18,6 +18,10 @@ services:
     volumes:
       # Your source, seen from inside the container — what dotnet watch is watching.
       - ../src:/src
+    networks:
+      # Naming any network switches off the automatic `default`, so list it too.
+      - default
+      - shopnet
     depends_on:
       # The long form waits for the healthcheck; the short form only orders starts.
       sqlserver:
@@ -63,6 +67,13 @@ services:
     ports:
       # Only the management UI. Nothing on your machine speaks AMQP.
       - "15672:15672"
+
+networks:
+  default: {}
+  # Created by hand: docker network create shopnet
+  # `external: true` means Compose won't create it — if it's missing, `up` stops.
+  shopnet:
+    external: true
 
 volumes:
   sql-data:

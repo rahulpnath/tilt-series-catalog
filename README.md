@@ -10,12 +10,43 @@ the right set of repos at the right tag:
 ```sh
 git clone https://github.com/rahulpnath/tilt-series
 cd tilt-series
-./bootstrap.sh v3-start
+./bootstrap.sh v3-end
 ```
 
-## At `v3-start`
+## At `v3-end`
 
-Two sibling repos have arrived — `Shop.Orders` and `Shop.Storefront` — each with
+`catalog-api` now joins **`shopnet`**, an external network created by hand and
+shared with `Shop.Orders`, so `orders-api` can reach it by service name.
+
+```yaml
+networks:
+  - default     # still needed! naming any network switches off the automatic one
+  - shopnet
+```
+
+Miss that `default` line and this container keeps its shared network but loses
+its own `sqlserver` and `rabbitmq`. With both listed it sits on two networks at
+once and resolves names on each:
+
+```
+shop_default  172.27.0.5     ← its own project: sqlserver, rabbitmq
+shopnet       172.21.0.2     ← the shared one: orders-api can find it here
+```
+
+`shopnet` is declared `external: true`, which means Compose will not create it.
+If it doesn't exist, `up` refuses to start:
+
+```
+network shopnet declared as external, but could not be found
+```
+
+Create it once, outside any project: `docker network create shopnet`.
+
+---
+
+## Earlier: `v3-start`
+
+Two sibling repos had arrived — `Shop.Orders` and `Shop.Storefront` — each with
 its own compose file and its own project. Nothing in this repo was wired to
 them, and nothing here can see them.
 
