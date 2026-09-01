@@ -10,10 +10,39 @@ the right set of repos at the right tag:
 ```sh
 git clone https://github.com/rahulpnath/tilt-series
 cd tilt-series
-./bootstrap.sh v3-end
+./bootstrap.sh v4-end
 ```
 
-## At `v3-end`
+## At `v4-end`
+
+A `Tiltfile`, and nothing else. `compose.yaml` is untouched.
+
+```sh
+tilt up          # from this folder — Catalog on its own
+```
+
+Four resources in the Tilt UI instead of four interleaved log streams, each with
+its own logs and its own restart button. `dotnet watch` is still what reloads
+the code; Tilt does not build these images and does not sync files.
+
+Two arguments in that file are load-bearing:
+
+- **`project_name='shop'`** — the same name `compose.yaml` already declares.
+  Tilt does **not** read the `name:` key. Leave the argument out and, as soon as
+  the workspace Tiltfile loads a second repo, Tilt merges every compose file
+  into one project named after the first repo's folder — and resolves that
+  repo's `context: ..` and `../src` for all of them. No warning, no error.
+- **`new_name=` on `sqlserver` and `rabbitmq`** — Tilt resource names are global
+  across every included repo, and `Shop.Orders` has services with those exact
+  names. Without the rename, the second repo loaded stops with
+  `Error in docker_compose: dc_resource named "rabbitmq" already exists`.
+
+`v4-start` did not change this repo — its tag points at the same commit as
+`v3-end`.
+
+---
+
+## Earlier: `v3-end`
 
 `catalog-api` now joins **`shopnet`**, an external network created by hand and
 shared with `Shop.Orders`, so `orders-api` can reach it by service name.
@@ -58,7 +87,7 @@ browser security, and Video 5 removes the need for it entirely.
 
 Everything below still describes how this repo runs on its own.
 
-## At `v2-end`
+## Earlier: `v2-end`
 
 The runbook is gone. One file, one command:
 
