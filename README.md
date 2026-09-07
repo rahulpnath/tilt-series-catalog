@@ -10,37 +10,42 @@ the right set of repos at the right tag:
 ```sh
 git clone https://github.com/rahulpnath/tilt-series
 cd tilt-series
-./bootstrap.sh v1-end
+./bootstrap.sh v1.2-end
 ```
 
-## At `v1-end`
+## At `v1.2-end`
 
 `Shop.Catalog.Api`, a .NET 10 minimal API holding its products in memory. No
-database and no messaging — but it now has a Dockerfile, so it no longer needs
-the .NET SDK on your machine:
+database and no messaging — and now a **second Dockerfile, for development
+only**. It mounts your source into the container and runs `dotnet watch`, so an
+edit is picked up while the container keeps running:
 
 ```sh
-docker build -f catalog-api.Dockerfile -t catalog-api .
-docker run -d -p 5101:8080 catalog-api
+docker build -f catalog-api.dev.Dockerfile -t catalog-api:dev .
+docker run --rm -it -p 5101:5101 --name catalog-api \
+  -v "$PWD/src:/src" \
+  catalog-api:dev
 
-curl http://localhost:5101/products
+# in another terminal
+curl http://localhost:5101/
 ```
 
-`catalog-api.Dockerfile` is a multi-stage build. `sdk:10.0` compiles and
-publishes the app, `aspnet:10.0` runs it, and the SDK is left behind — **340 MB
-instead of 1.25 GB**. `.dockerignore` keeps `bin` and `obj` out of the build
-context.
+Edit `src/Shop.Catalog.Api/Program.cs`, then curl again. No rebuild, no restart.
 
-The container listens on `8080`, which is what the ASP.NET base images default
-to, so the port mapping is `5101:8080`.
+Three things make that work:
 
-If you do have the SDK, it still runs the way it did at `v1-start`:
+- **`sdk:10.0`, one stage.** This image compiles every time you save, so it
+  needs the SDK. It's 1.25 GB, and that's fine — it never leaves your machine.
+- **`applicationUrl` is now `http://+:5101`.** Kestrel binds every interface in
+  the container rather than just its loopback, which is what lets `-p` reach it.
+  It binds every interface when you `dotnet run` on your own machine too — add a
+  second launch profile if you'd rather it didn't.
+- **`ENV ArtifactsPath=/artifacts`.** The container's `bin` and `obj` land there
+  instead of in the mounted folder, so its root-owned build output never gets
+  into your source tree.
 
-```sh
-dotnet run --project src/Shop.Catalog.Api
-curl http://localhost:5101/products
-```
+`catalog-api.Dockerfile` from `v1-end` is untouched and still builds the 340 MB
+runtime image. Two Dockerfiles, two jobs — one to ship, one to develop in.
 
-There's no bind mount and no `dotnet watch` here — this image carries no SDK, so
-a code change means building the image again. `v1.2-end` adds a second, dev-only
-Dockerfile that fixes exactly that.
+That `docker run` is a lot to type for one container. Video 2 replaces it with
+Compose.
