@@ -1,3 +1,5 @@
 <Solution>
   <Project Path="Shop.Catalog.Api/Shop.Catalog.Api.csproj" />
+  <Project Path="Shop.Catalog.Contracts/Shop.Catalog.Contracts.csproj" />
+  <Project Path="Shop.Catalog.Worker/Shop.Catalog.Worker.csproj" />
 </Solution>

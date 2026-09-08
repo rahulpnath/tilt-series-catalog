@@ -10,42 +10,58 @@ the right set of repos at the right tag:
 ```sh
 git clone https://github.com/rahulpnath/tilt-series
 cd tilt-series
-./bootstrap.sh v1.2-end
+./bootstrap.sh v2-start
 ```
 
-## At `v1.2-end`
+## At `v2-start`
 
-`Shop.Catalog.Api`, a .NET 10 minimal API holding its products in memory. No
-database and no messaging — and now a **second Dockerfile, for development
-only**. It mounts your source into the container and runs `dotnet watch`, so an
-edit is picked up while the container keeps running:
+The catalog stopped being one process holding a list in memory.
+
+- **`Shop.Catalog.Api`** now writes products to **SQL Server** with EF Core, and
+  publishes a `ProductCreated` message with **Rebus** whenever one is added.
+- **`Shop.Catalog.Worker`** is new — a worker service that subscribes to that
+  message and logs it.
+- **`Shop.Catalog.Contracts`** is new — it holds `ProductCreated`, because Rebus
+  puts the type name on the wire and both sides need the same type.
+
+There is **no Docker configuration for any of this yet**. That is the point of
+the next video.
+
+### Running it
+
+Four things have to be up, in the right order, before the app does anything:
 
 ```sh
-docker build -f catalog-api.dev.Dockerfile -t catalog-api:dev .
-docker run --rm -it -p 5101:5101 --name catalog-api \
-  -v "$PWD/src:/src" \
-  catalog-api:dev
+docker run -d --name sqlserver -p 1433:1433 \
+  -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD='P@ssw0rd!Demo1' \
+  mcr.microsoft.com/mssql/server:2022-latest
 
-# in another terminal
-curl http://localhost:5101/
+docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 \
+  -e RABBITMQ_DEFAULT_USER=shop -e RABBITMQ_DEFAULT_PASS=shop \
+  rabbitmq:3-management
+
+dotnet run --project src/Shop.Catalog.Worker
+dotnet run --project src/Shop.Catalog.Api
 ```
 
-Edit `src/Shop.Catalog.Api/Program.cs`, then curl again. No rebuild, no restart.
+Then add a product and watch the worker pick it up:
 
-Three things make that work:
+```sh
+curl -X POST http://localhost:5101/products \
+  -H 'Content-Type: application/json' \
+  -d '{"id":0,"name":"Pour Over Kettle","price":119.00}'
+```
 
-- **`sdk:10.0`, one stage.** This image compiles every time you save, so it
-  needs the SDK. It's 1.25 GB, and that's fine — it never leaves your machine.
-- **`applicationUrl` is now `http://+:5101`.** Kestrel binds every interface in
-  the container rather than just its loopback, which is what lets `-p` reach it.
-  It binds every interface when you `dotnet run` on your own machine too — add a
-  second launch profile if you'd rather it didn't.
-- **`ENV ArtifactsPath=/artifacts`.** The container's `bin` and `obj` land there
-  instead of in the mounted folder, so its root-owned build output never gets
-  into your source tree.
+```
+info: Shop.Catalog.Worker.ProductCreatedHandler[0]
+      product.created — #1 Pour Over Kettle at 119.00
+```
 
-`catalog-api.Dockerfile` from `v1-end` is untouched and still builds the 340 MB
-runtime image. Two Dockerfiles, two jobs — one to ship, one to develop in.
+That is four commands, in a required order, every morning — and two of them are
+long enough that nobody types them from memory. Video 2 replaces all of it with
+one file and `docker compose up`.
 
-That `docker run` is a lot to type for one container. Video 2 replaces it with
-Compose.
+The two Dockerfiles from the earlier videos are untouched:
+`catalog-api.Dockerfile` builds the 340 MB runtime image from `v1-end`, and
+`catalog-api.dev.Dockerfile` is the hot-reloading dev image from `v1.2-end`.
+Neither knows about the worker or the new dependencies yet.
