@@ -24,8 +24,11 @@ The catalog stopped being one process holding a list in memory.
 - **`Shop.Catalog.Contracts`** is new — it holds `ProductCreated`, because Rebus
   puts the type name on the wire and both sides need the same type.
 
-There is **no Docker configuration for any of this yet**. That is the point of
-the next video.
+`Shop.Catalog.Worker` also gets **`catalog-worker.dev.Dockerfile`** — the same dev
+image `Shop.Catalog.Api` got in `v1.2-end`, with the paths changed and no port. There
+is nothing new in it, so video 2 walks through it rather than writing it.
+
+There is **no Compose configuration yet**. That is the point of the next video.
 
 ### Running it
 
