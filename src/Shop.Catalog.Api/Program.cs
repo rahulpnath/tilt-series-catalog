@@ -30,6 +30,7 @@ app.MapPost("/products", async (Product product, CatalogDbContext db, IBus bus) 
     await db.SaveChangesAsync();
 
     await bus.Publish(new ProductCreated(product.Id, product.Name, product.Price));
+    app.Logger.LogInformation("📤 published ProductCreated — #{Id} {Name}", product.Id, product.Name);
 
     return Results.Created($"/products/{product.Id}", product);
 });

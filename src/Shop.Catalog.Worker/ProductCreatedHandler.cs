@@ -9,7 +9,7 @@ public class ProductCreatedHandler(ILogger<ProductCreatedHandler> logger)
 {
     public Task Handle(ProductCreated message)
     {
-        logger.LogInformation("product.created — #{Id} {Name} at {Price}",
+        logger.LogInformation("📦 product.created — #{Id} {Name} at {Price}",
             message.Id, message.Name, message.Price);
         return Task.CompletedTask;
     }
