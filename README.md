@@ -52,7 +52,7 @@ Then add a product and watch the worker pick it up:
 ```sh
 curl -X POST http://localhost:5101/products \
   -H 'Content-Type: application/json' \
-  -d '{"id":0,"name":"Pour Over Kettle","price":119.00}'
+  -d '{"name":"Pour Over Kettle","price":119.00}'
 ```
 
 ```
