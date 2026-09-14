@@ -12,11 +12,9 @@ services:
       Rabbit__Url: "amqp://shop:shop@rabbitmq"
     volumes:
       - ./src:/src
-    depends_on:
-      sqlserver:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+    networks:
+      - default
+      - shopnet
 
   worker:
     build:
@@ -26,39 +24,11 @@ services:
       Rabbit__Url: "amqp://shop:shop@rabbitmq"
     volumes:
       - ./src:/src
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
+    networks:
+      - default
+      - shopnet
 
-  sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
-    ports:
-      - "1433:1433"
-    environment:
-      ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "${SA_PASSWORD}"
-    volumes:
-      - sql-data:/var/opt/mssql
-    healthcheck:
-      test: ["CMD", "/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", "${SA_PASSWORD}", "-C", "-Q", "SELECT 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 10s
-
-  rabbitmq:
-    image: rabbitmq:3-management
-    environment:
-      RABBITMQ_DEFAULT_USER: shop
-      RABBITMQ_DEFAULT_PASS: shop
-    ports:
-      - "15672:15672"
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 10s
-
-volumes:
-  sql-data:
+# Owned by the workspace's infra project; SQL Server and RabbitMQ live there.
+networks:
+  shopnet:
+    external: true

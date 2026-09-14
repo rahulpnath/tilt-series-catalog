@@ -24,6 +24,9 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "catalog-a
 app.MapGet("/products", async (CatalogDbContext db) =>
     await db.Products.OrderByDescending(p => p.Id).ToListAsync());
 
+app.MapGet("/products/{id:int}", async (int id, CatalogDbContext db) =>
+    await db.Products.FindAsync(id) is { } product ? Results.Ok(product) : Results.NotFound());
+
 app.MapPost("/products", async (Product product, CatalogDbContext db, IBus bus) =>
 {
     db.Products.Add(product);

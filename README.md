@@ -10,32 +10,31 @@ the right set of repos at the right tag:
 ```sh
 git clone https://github.com/rahulpnath/tilt-series
 cd tilt-series
-./bootstrap.sh v2-end
+./bootstrap.sh v3-start
 ```
 
-## At `v2-end`
+## At `v3-start`
 
-The runbook is gone. **`compose.yaml`** at the repo root describes all four containers —
-SQL Server, RabbitMQ, the API and the worker. The two app services build from the dev
-Dockerfiles, so your source is bind-mounted and `dotnet watch` reloads on save. SQL
-Server and RabbitMQ carry health checks, and `depends_on` holds the app containers back
-until both report healthy.
+SQL Server and RabbitMQ have moved out of this repo. They now live in the workspace's
+**`infra/`** compose project, shared with `Shop.Orders`, on a network named `shopnet`.
+`compose.yaml` here has the API and the worker, each on this project's own network *and* on
+`shopnet` — declared `external`, because infra owns it. The connection strings still say
+`sqlserver` and `rabbitmq`.
 
-The only thing installed on your machine is Docker. The .NET SDK runs inside the
-containers.
+The API also gained `GET /products/{id}`, which Orders calls to price an order.
 
 ### Running it
 
-The SQL Server password is read from a `.env` file, which is not committed. Create it
-once:
+Bring infra up first, from the workspace root:
+
+```sh
+(cd infra && docker compose up -d --wait)
+```
+
+Then, here — the SQL password is read from a `.env` file, which is not committed:
 
 ```sh
 echo 'SA_PASSWORD=P@ssw0rd!Demo1' > .env
-```
-
-Then:
-
-```sh
 docker compose up
 ```
 
@@ -52,11 +51,8 @@ worker-1  | info: Shop.Catalog.Worker.ProductCreatedHandler[0]
 worker-1  |       📦 product.created — #1 Pour Over Kettle at 119.00
 ```
 
-`docker compose down` stops and removes the containers but keeps the database — it
-lives in the `sql-data` named volume. `docker compose down -v` removes that too.
-
-SQL Server is published on `localhost,1433` if you want to open it in SSMS or DataGrip,
-and RabbitMQ's management UI is at http://localhost:15672 (`shop` / `shop`). The apps
-don't use either — they reach both by service name, inside the Compose network.
+`docker compose down` removes this project's containers and its own network; `shopnet` and
+the database belong to infra and stay. SQL Server (`localhost,1433`) and the RabbitMQ UI
+(http://localhost:15672, `shop` / `shop`) are published by infra now.
 
 `catalog-api.Dockerfile`, the runtime image from `v1-end`, is untouched and unused here.
