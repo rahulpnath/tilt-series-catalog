@@ -8,3 +8,6 @@ obj/
 .vs/
 .idea/
 .vscode/
+
+# Compose reads the SQL password from here; create it locally.
+.env
