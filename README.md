@@ -10,18 +10,35 @@ the right set of repos at the right tag:
 ```sh
 git clone https://github.com/rahulpnath/tilt-series
 cd tilt-series
-./bootstrap.sh v3-start
+./bootstrap.sh v3-end
 ```
 
-## At `v3-start`
+## At `v3-end`
 
-SQL Server and RabbitMQ have moved out of this repo. They now live in the workspace's
-**`infra/`** compose project, shared with `Shop.Orders`, on a network named `shopnet`.
-`compose.yaml` here has the API and the worker, each on this project's own network *and* on
-`shopnet` — declared `external`, because infra owns it. The connection strings still say
-`sqlserver` and `rabbitmq`.
+SQL Server and RabbitMQ live in the workspace's **`infra/`** compose project, shared with
+`Shop.Orders`, on a network named `shopnet`. `compose.yaml` here has the API and the worker,
+each on this project's own network *and* on `shopnet` — declared `external`, because infra
+owns it.
 
-The API also gained `GET /products/{id}`, which Orders calls to price an order.
+Two things changed in video 3. On `shopnet`, the API now also answers to **`catalog-api`**:
+
+```yaml
+    networks:
+      default:
+      shopnet:
+        aliases:
+          - catalog-api
+```
+
+The service is still `api` inside this project — so is Orders' — and on the shared network
+that name is ambiguous. The alias is an extra name on that one network only, and it is what
+Orders calls.
+
+And `Program.cs` adds a wide-open **CORS policy**. The Storefront runs on
+`http://localhost:5173` and this API on `http://localhost:5101` — different origins, so
+without it the browser refuses every call. It is dev-only, and it exists only because the
+apps sit on different ports of your machine; video 5 puts them behind one address and
+removes the need for it.
 
 ### Running it
 

@@ -13,8 +13,10 @@ services:
     volumes:
       - ./src:/src
     networks:
-      - default
-      - shopnet
+      default:
+      shopnet:
+        aliases:
+          - catalog-api
 
   worker:
     build:

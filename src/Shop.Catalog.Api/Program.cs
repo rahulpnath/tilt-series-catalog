@@ -13,7 +13,12 @@ builder.Services.AddDbContext<CatalogDbContext>(o =>
 builder.Services.AddRebus(rebus => rebus
     .Transport(t => t.UseRabbitMqAsOneWayClient(builder.Configuration["Rabbit:Url"])));
 
+builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
+    p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
+
 var app = builder.Build();
+
+app.UseCors();
 
 await DbBootstrap.EnsureCreatedAsync(app.Services, app.Logger);
 
