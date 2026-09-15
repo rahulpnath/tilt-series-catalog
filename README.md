@@ -10,10 +10,28 @@ the right set of repos at the right tag:
 ```sh
 git clone https://github.com/rahulpnath/tilt-series
 cd tilt-series
-./bootstrap.sh v3-end
+./bootstrap.sh v4-end
 ```
 
-## At `v3-end`
+## At `v4-end`
+
+A `Tiltfile`, and nothing else. `compose.yaml` is untouched.
+
+```python
+docker_compose('compose.yaml', project_name='shop-catalog')
+
+dc_resource('api', new_name='catalog-api', labels=['catalog'])
+dc_resource('worker', new_name='catalog-worker', labels=['catalog'])
+```
+
+`tilt up` from this folder runs Catalog on its own — with infra already up from the workspace's `infra/`. From the workspace root, its `Tiltfile`
+`include()`s this one, and this repo stays its own compose project either way.
+
+`project_name` is not optional — Tilt does not read the `name:` key in `compose.yaml`.
+`new_name` is what Tilt calls each service: resource names are global across every repo the
+workspace loads, and `Shop.Orders` has an `api` and a `worker` too. The service and container names are unchanged.
+
+## Earlier: `v3-end`
 
 SQL Server and RabbitMQ live in the workspace's **`infra/`** compose project, shared with
 `Shop.Orders`, on a network named `shopnet`. `compose.yaml` here has the API and the worker,
