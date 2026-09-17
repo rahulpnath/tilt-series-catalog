@@ -10,10 +10,26 @@ the right set of repos at the right tag:
 ```sh
 git clone https://github.com/rahulpnath/tilt-series
 cd tilt-series
-./bootstrap.sh v4-end
+./bootstrap.sh v5-end
 ```
 
-## At `v4-end`
+## At `v5-end`
+
+`ports:` is gone from `compose.yaml`, and the `Tiltfile` gains `links=['https://catalog.localhost/products']`.
+Nothing else changed.
+
+The API is reached at **https://catalog.localhost** through **Caddy** — the workspace's `caddy/`
+project, a container on `shopnet` that forwards to the alias **`catalog-api:5101`**. That is the alias from video 3, which Orders already calls by name.
+
+Nothing outside Docker needs this API's door any more: the browser goes through Caddy, and
+Orders always went by name. The CORS policy in `Program.cs` stays — the Storefront is `storefront.localhost` and this
+API is `catalog.localhost`, different origins, as they will be when deployed.
+
+```sh
+curl https://catalog.localhost/products        # after trusting Caddy's root (workspace README), or add -k
+```
+
+## Earlier: `v4-end`
 
 A `Tiltfile`, and nothing else. `compose.yaml` is untouched.
 
@@ -54,9 +70,8 @@ Orders calls.
 
 And `Program.cs` adds a wide-open **CORS policy**. The Storefront runs on
 `http://localhost:5173` and this API on `http://localhost:5101` — different origins, so
-without it the browser refuses every call. It is dev-only, and it exists only because the
-apps sit on different ports of your machine; video 5 puts them behind one address and
-removes the need for it.
+without it the browser refuses every call. It is dev-only. Video 5 puts each app behind its own name — still different origins, so
+the policy stays.
 
 ### Running it
 

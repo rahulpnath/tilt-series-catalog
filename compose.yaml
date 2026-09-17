@@ -5,8 +5,6 @@ services:
     build:
       context: .
       dockerfile: catalog-api.dev.Dockerfile
-    ports:
-      - "5101:5101"
     environment:
       ConnectionStrings__Db: "Server=sqlserver,1433;Database=ShopCatalog;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;Encrypt=False"
       Rabbit__Url: "amqp://shop:shop@rabbitmq"
