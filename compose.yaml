@@ -14,7 +14,7 @@ services:
       default:
       shopnet:
         aliases:
-          - catalog-api
+          - catalog-api-${FOLDER:-main}
 
   catalog-worker:
     build:
