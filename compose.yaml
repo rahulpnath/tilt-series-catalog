@@ -3,13 +3,13 @@ name: shop-catalog
 services:
   catalog-api:
     build:
-      context: ${CATALOG_DIR:-.}
+      context: .
       dockerfile: catalog-api.dev.Dockerfile
     environment:
       ConnectionStrings__Db: "Server=sqlserver,1433;Database=ShopCatalog;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;Encrypt=False"
       Rabbit__Url: "amqp://shop:shop@rabbitmq"
     volumes:
-      - ${CATALOG_DIR:-.}/src:/src
+      - ./src:/src
     networks:
       default:
       shopnet:
@@ -18,12 +18,12 @@ services:
 
   catalog-worker:
     build:
-      context: ${CATALOG_DIR:-.}
+      context: .
       dockerfile: catalog-worker.dev.Dockerfile
     environment:
       Rabbit__Url: "amqp://shop:shop@rabbitmq"
     volumes:
-      - ${CATALOG_DIR:-.}/src:/src
+      - ./src:/src
 
 # Caddy's network; it reaches the API by its alias.
 networks:
