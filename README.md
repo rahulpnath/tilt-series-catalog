@@ -10,10 +10,33 @@ the right set of repos at the right tag:
 ```sh
 git clone https://github.com/rahulpnath/tilt-series
 cd tilt-series
-./bootstrap.sh v5-end
+./bootstrap.sh v6-end
 ```
 
-## At `v5-end`
+## At `v6-end`
+
+Two videos changed this repo.
+
+**Docker Compose Include** (`v5.2-end`) — the services are `catalog-api` and `catalog-worker`, so
+the workspace can `include` this file into one compose project with the other repos. The worker
+left `shopnet`; it finds infra on the project's own network. The `Tiltfile` lost
+`docker_compose()` and `new_name=`: the workspace loads this compose file through its `include`,
+and this `Tiltfile` keeps only the label and the link.
+
+**Parallel Worktree Environments** (`v6-end`) — the API's `shopnet` alias is
+`catalog-api-${FOLDER:-main}`, and the Tilt link is `https://catalog-<folder>.localhost/products`.
+`FOLDER` is the workspace folder being run, passed on by the workspace `Tiltfile`; it falls back
+to `main`. Paths in `compose.yaml` are still plain `.` and `./src`.
+
+This repo no longer runs on its own: its database and message broker come from the workspace's
+infra, inside each folder's project. Run it from the workspace (`tilt up`, or `tilt up <folder>`).
+Every worktree of this repo needs its own `.env` (`SA_PASSWORD`) — git doesn't copy ignored files.
+
+```sh
+curl https://catalog-main.localhost/products
+```
+
+## Earlier: `v5-end`
 
 `ports:` is gone from `compose.yaml`, and the `Tiltfile` gains `links=['https://catalog.localhost/products']`.
 Nothing else changed.
